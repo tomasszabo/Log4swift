@@ -20,7 +20,6 @@
 
 #import "ASLWrapper.h"
 #import <asl.h>
-#import <Log4swift/Log4swift-Swift.h>
 
 @implementation ASLWrapper {
   aslclient logClient;
@@ -103,26 +102,26 @@
   return foundFacility;
 }
 
-- (int)_logLevelToAslLevel:(LogLevel)logLevel {
+- (int)_logLevelToAslLevel:(int)logLevel {
   int aslLogLevel = ASL_LEVEL_DEBUG;
   switch(logLevel) {
-    case LogLevelTrace:
-    case LogLevelDebug:
+    case 0:
+    case 1:
       aslLogLevel = ASL_LEVEL_DEBUG;
       break;
-    case LogLevelInfo:
+    case 2:
       aslLogLevel = ASL_LEVEL_INFO;
       break;
-    case LogLevelWarning:
+    case 3:
       aslLogLevel = ASL_LEVEL_WARNING;
       break;
-    case LogLevelError:
+    case 4:
       aslLogLevel = ASL_LEVEL_ERR;
       break;
-    case LogLevelFatal:
+    case 5:
       aslLogLevel = ASL_LEVEL_CRIT;
       break;
-    case LogLevelOff:
+    case 6:
       // If the LogLevel is OFF this piece of code should have never been reached in the first place
       // Mapping it to ASL_LEVEL_CRIT if does nevertheless.
       aslLogLevel = ASL_LEVEL_CRIT;
@@ -135,22 +134,22 @@
   int aslLogLevel = ASL_LEVEL_DEBUG;
   switch(aslLevel) {
     case ASL_LEVEL_DEBUG:
-      aslLogLevel = LogLevelDebug;
+      aslLogLevel = 1;
       break;
     case ASL_LEVEL_INFO:
     case ASL_LEVEL_NOTICE:
-      aslLogLevel = LogLevelInfo;
+      aslLogLevel = 2;
       break;
     case ASL_LEVEL_WARNING:
-      aslLogLevel = LogLevelWarning;
+      aslLogLevel = 3;
       break;
     case ASL_LEVEL_ERR:
-      aslLogLevel = LogLevelError;
+      aslLogLevel = 4;
       break;
     case ASL_LEVEL_CRIT:
     case ASL_LEVEL_ALERT:
     case ASL_LEVEL_EMERG:
-      aslLogLevel = LogLevelFatal;
+      aslLogLevel = 5;
       break;
   }
   return aslLogLevel;
