@@ -44,17 +44,28 @@ internal struct ClassInfo {
   public var subclasses: [ClassInfo] {
     var subclassList = [ClassInfo]()
     
-    var count = UInt32(0)
-    let classList = objc_copyClassList(&count)!
-    
-    for i in 0..<Int(count) {
-      let classInfo = ClassInfo(classList[i])
-      if classInfo.isSubclass(of: self) {
-        subclassList.append(classInfo)
+    var capacity = objc_getClassList(nil, 0)
+    while capacity > 0 {
+      let classList = UnsafeMutablePointer<AnyClass>.allocate(capacity: Int(capacity))
+      defer { classList.deallocate() }
+      let count = objc_getClassList(AutoreleasingUnsafeMutablePointer(classList), capacity)
+      // Classes can be registered between the sizing call and the copy.
+      if count > capacity {
+        capacity = count
+        continue
       }
+
+      // Read the typed buffer directly: autoreleasing-pointer subscripting
+      // dynamically casts runtime classes that need not inherit NSObject.
+      for i in 0..<Int(count) {
+        let classInfo = ClassInfo(classList[i])
+        if classInfo.isSubclass(of: self) {
+          subclassList.append(classInfo)
+        }
+      }
+      break
     }
     
     return subclassList
   }
 }
-

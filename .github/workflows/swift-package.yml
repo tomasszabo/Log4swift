@@ -1,0 +1,55 @@
+name: Swift package
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swift-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Package tests
+        run: swift test
+      - name: Release build
+        run: swift build -c release
+      - name: Legacy framework build
+        run: |
+          xcodebuild -project Log4swift.xcodeproj -scheme log4swift-iOS \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .build/legacy-ios CODE_SIGNING_ALLOWED=NO \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 build
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Representative simulator tests
+        run: |
+          simulator_id=$(xcrun simctl list devices available -j | ruby -rjson -e '
+            devices = JSON.parse(STDIN.read).fetch("devices")
+            device = devices.select { |runtime, _| runtime.include?("iOS") }
+              .values.flatten.find { |candidate| candidate.fetch("name").start_with?("iPhone") }
+            abort "No iPhone simulator available" unless device
+            puts device.fetch("udid")
+          ')
+          xcodebuild -workspace Log4swift-Package.xcworkspace -scheme Log4swift-Package \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -derivedDataPath .build/ios CODE_SIGNING_ALLOWED=NO \
+            -only-testing:Log4swiftTests/LoggerTests \
+            -only-testing:Log4swiftTests/LoggerFactoryTests \
+            -skip-testing:Log4swiftTests/LoggerFactoryTests/testConfigureForNSLoggerReplacesCurrentConfiguration \
+            -only-testing:Log4swiftTests/PatternFormatterTests \
+            -only-testing:Log4swiftTests/FileAppenderTests \
+            -only-testing:Log4swiftTests/SystemAppenderTests \
+            -only-testing:Log4swiftTests/SubclassingTests \
+            -only-testing:Log4swiftTests/NativeAppenderPackageTests test

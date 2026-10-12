@@ -18,6 +18,8 @@
 // limitations under the License.
 //
 
+import Foundation
+
 extension StringProtocol {
   /// Return a new string by removing everything after the last occurence of the provided marker and including the marker.  
   /// If the marker is not found, an empty string is returned.

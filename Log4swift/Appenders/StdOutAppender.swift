@@ -18,6 +18,8 @@
 // limitations under the License.
 //
 
+import Foundation
+
 /**
 StdOutAppender will print the log to stdout or stderr depending on thresholds and levels.
 * If general threshold is reached but error threshold is undefined or not reached, log will be printed to stdout
