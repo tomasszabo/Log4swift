@@ -19,6 +19,10 @@
 //
 
 import Foundation
+#if !os(watchOS)
+#if SWIFT_PACKAGE
+@_exported import Log4swiftNSLogger
+#endif
 
 /**
 The NSLogger appender relies on the NSLogger project (see https://github.com/fpillet/NSLogger) to send log messages over the network.  
@@ -32,7 +36,6 @@ public class NSLoggerAppender : Appender {
     case RemoteHost = "RemoteHost"
     case RemotePort = "RemotePort"
   }
-
   let logger: UnsafeMutablePointer<NSLogger>
   
   /// This initializer will configure the NSLogger client to send the messages to a specific host, with a specific port.
@@ -165,3 +168,4 @@ public class NSLoggerAppender : Appender {
     LoggerStart(self.logger)
   }
 }
+#endif

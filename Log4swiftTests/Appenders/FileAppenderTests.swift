@@ -311,8 +311,11 @@ class FileAppenderTests: XCTestCase {
     XCTAssertEqual(declaredRotationPolicy?.maxFileAge, 100)
   }
 
-  func testLoggingToImpossiblePathDoesNotCreateTheFileAndDoesNotRaiseError() {
-		let filePath = "/proc/impossibleLogFile.log"
+  func testLoggingToImpossiblePathDoesNotCreateTheFileAndDoesNotRaiseError() throws {
+    let parentPath = try self.createTemporaryFilePath(fileExtension: "file")
+    XCTAssertTrue(FileManager.default.createFile(atPath: parentPath, contents: Data()))
+    defer { try? FileManager.default.removeItem(atPath: parentPath) }
+    let filePath = (parentPath as NSString).appendingPathComponent("impossibleLogFile.log")
 		let fileAppender = FileAppender(identifier: "test.appender", filePath: filePath)
 		
 		// Execute
