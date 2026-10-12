@@ -11,7 +11,7 @@ import Foundation
 /**
 This protocol should be implemented to register as a delegate of a FileObserver object.
 */
-public protocol FileObserverDelegate {
+public protocol FileObserverDelegate: AnyObject, Sendable {
   func fileChanged(atPath: String)
 }
 
@@ -20,16 +20,23 @@ This class is a simple observer for a file. It will notify a delegate when a cha
 It does not use FSEvent, to keep the complexity low while being compatible with both OS X and Linux.
 It only observes a single file, which will make the cost of pooling for changes very low.
 */
-public class FileObserver {
-  public var delegate: FileObserverDelegate?
+public final class FileObserver: Sendable {
+  private struct State {
+    weak var delegate: FileObserverDelegate?
+    var lastModificationTime = timespec(tv_sec: 0, tv_nsec: 0)
+  }
+  private let state = Synchronized(State())
+  public var delegate: FileObserverDelegate? {
+    get { state.withValue { $0.delegate } }
+    set { state.withValue { $0.delegate = newValue } }
+  }
   public let filePath: String
   public let poolInterval: Double
-  private var lastModificationTime = timespec(tv_sec: 0, tv_nsec: 0)
   
   init(filePath: String, poolInterval: Double = 2.0) {
     self.filePath = filePath
     self.poolInterval = poolInterval
-    self.lastModificationTime = self.getFileModificationDate()
+    self.state.withValue { $0.lastModificationTime = self.getFileModificationDate() }
     self.scheduleNextPooling()
   }
   
@@ -46,17 +53,19 @@ public class FileObserver {
   }
   
   func poolForChange() {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     let modificationDate = self.getFileModificationDate()
-    if modificationDate > self.lastModificationTime {
+    if modificationDate > state.withValue({ $0.lastModificationTime }) {
 			delegate?.fileChanged(atPath: self.filePath)
-      self.lastModificationTime = modificationDate
+      state.withValue { $0.lastModificationTime = modificationDate }
     }
     self.scheduleNextPooling()
   }
   
   private func scheduleNextPooling() {
     let nextPoolingTime = DispatchTime.now() + self.poolInterval
-    let poolClosure:@convention(block) () -> Void = {[weak self] in
+    let poolClosure: @Sendable () -> Void = {[weak self] in
       self?.poolForChange()
     }
     

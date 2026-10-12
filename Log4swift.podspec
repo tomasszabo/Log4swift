@@ -13,17 +13,19 @@ Pod::Spec.new do |s|
 
                    DESC
 
-  s.homepage     = "http://github.com/jduquennoy/Log4swift"
+  s.homepage     = "https://github.com/tomasszabo/Log4swift"
   
   s.license      = { :type => "Apache v2.0", :file => "LICENSE" }
 
   s.author       = { "Jerome Duquennoy" => "jerome@duquennoy.fr" }
 
-  s.ios.deployment_target = "8.0"
-  s.osx.deployment_target = "10.10"
-  s.swift_versions = ["5.0"]
+  s.ios.deployment_target = "15.0"
+  s.osx.deployment_target = "12.0"
+  s.tvos.deployment_target = "15.0"
+  s.watchos.deployment_target = "9.0"
+  s.swift_versions = ["6.0"]
 
-  s.source       = { :git => "https://github.com/jduquennoy/Log4swift.git", :tag => "v1.0.4" }
+  s.source       = { :git => "https://github.com/tomasszabo/Log4swift.git", :branch => "master" }
 
   s.source_files = "Log4swift", "Log4swift/**/*.{swift,h,m}", "Third parties/**/*.{h,m}"
 

@@ -21,7 +21,7 @@
 /**
 This protocol defines a formatter, that will format log messages on the fly.
 */
-public protocol Formatter {
+public protocol Formatter: Sendable {
   /// A string identifier that should uniquely identify a formatter.
   var identifier: String { get }
   

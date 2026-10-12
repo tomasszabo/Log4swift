@@ -26,7 +26,7 @@ The logger factory is responsible for
 * holding the loggers and appenders
 * matching UTI identifiers to loggers
 */
-@objc public final class LoggerFactory: NSObject {
+@objc public final class LoggerFactory: NSObject, Sendable {
   @objc static public let sharedInstance = LoggerFactory()
   
   /// Errors that can be thrown by logger factory
@@ -34,17 +34,27 @@ The logger factory is responsible for
     case InvalidLoggerIdentifier
   }
   
-  internal var configurationFileObserver: FileObserver?
+  private let observerStorage = Synchronized<FileObserver?>(nil)
+  internal var configurationFileObserver: FileObserver? {
+    get { observerStorage.withValue { $0 } }
+    set { observerStorage.withValue { $0 = newValue } }
+  }
   
   /// The root logger is the catchall logger used when no other logger matches. It is the only non-optional logger of the factory.
   public let rootLogger = Logger()
-  internal var loggers = Dictionary<String, Logger>()
+  private let loggersStorage = Synchronized([String: Logger]())
+  internal var loggers: [String: Logger] {
+    get { loggersStorage.withValue { $0 } }
+    set { loggersStorage.withValue { $0 = newValue } }
+  }
   
   // MARK: Configuration
 
   /// Adds the given logger to the list of available loggers. If a logger with the same identifier already exists, it will be replaced by the new one.
   /// Adding a logger with an empty identifier will cause an error. Use the root logger instead of defining a logger with an empty identifier.
   @objc public func registerLogger(_ newLogger: Logger) throws {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     if(newLogger.identifier.isEmpty) {
       throw LoggerError.InvalidLoggerIdentifier
     }
@@ -54,6 +64,8 @@ The logger factory is responsible for
   }
   
   @objc public func resetConfiguration() {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     self.loggers.removeAll()
     self.rootLogger.resetConfiguration()
   }
@@ -71,6 +83,8 @@ The logger factory is responsible for
   /// Ultimately, if no logger is found, the root logger will be used as a base.
   /// Once the logger has been created, it is associated with its identifier, and can be updated independently from other loggers.
   @objc public func getLogger(_ identifierToFind: String) -> Logger {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     let foundLogger: Logger
     
     if let loggerFromCache = self.loggers[identifierToFind] {
@@ -111,6 +125,8 @@ extension LoggerFactory {
   **This method will replace your current configuration by a new one.**
   */
   public func configureForXcodeConsole(thresholdLevel: LogLevel = .Debug) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     self.resetConfiguration()
     
     let xcodeAppender = StdOutAppender("xcodeAppender")
@@ -141,6 +157,8 @@ extension LoggerFactory {
   **This method will replace your current configuration by a new one.**
   */
   public func configureForSystemConsole(thresholdLevel: LogLevel = .Warning) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     self.resetConfiguration()
     
     let systemConsoleAppender = ASLAppender("systemConsoleAppender")
@@ -157,6 +175,8 @@ extension LoggerFactory {
   */
   #if !os(watchOS)
   public func configureForNSLogger(remoteHost: String = "127.0.0.1", remotePort: UInt32 = 50000, thresholdLevel: LogLevel = .Debug) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     self.resetConfiguration()
     
     let nsloggerAppender = NSLoggerAppender(identifier: "nsloggerAppender", remoteHost: remoteHost, remotePort: remotePort, useLocalCache: true, useSSL: true)

@@ -26,7 +26,7 @@ Order of the levels is :
 
 Trace < Debug < Info < Warning < Error < Fatal < Off
 */
-@objc public enum LogLevel: Int, CustomStringConvertible {
+@objc public enum LogLevel: Int, CustomStringConvertible, Sendable {
   
   case Trace = 0
   case Debug = 1

@@ -24,22 +24,43 @@ import Foundation
 Appenders are responsible for sending logs to heir destination.
 This class is the base class, from which all appenders should inherit.
 */
-@objc open class Appender: NSObject {
+// Open classes cannot have checked Sendable conformance. Subclasses must keep
+// mutable state synchronized, including direct performLog/update calls.
+@objc open class Appender: NSObject, @unchecked Sendable {
   public enum DictionaryKey: String {
     case ThresholdLevel = "ThresholdLevel"
     case FormatterId = "FormatterId"
   }
   
   @objc let identifier: String
-  @objc public var thresholdLevel = LogLevel.Debug
-  public var formatter: Formatter?
+  private struct State {
+    var thresholdLevel = LogLevel.Debug
+    var formatter: Formatter?
+  }
+  private let state = Synchronized(State())
+  @objc public var thresholdLevel: LogLevel {
+    get { state.withValue { $0.thresholdLevel } }
+    set { state.withValue { $0.thresholdLevel = newValue } }
+  }
+  public var formatter: Formatter? {
+    get { state.withValue { $0.formatter } }
+    set { state.withValue { $0.formatter = newValue } }
+  }
   
   @objc
   public required init(_ identifier: String) {
     self.identifier = identifier
   }
+
+  /// Protect custom mutable state, including property access and direct
+  /// performLog/update calls. Do not wait for other threads inside this block.
+  public final func withSynchronization<Result>(_ body: () throws -> Result) rethrows -> Result {
+    try withLoggingLock(body)
+  }
   
   open func update(withDictionary dictionary: Dictionary<String, Any>, availableFormatters: Array<Formatter>) throws {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
      if let safeThresholdString = (dictionary[DictionaryKey.ThresholdLevel.rawValue] as? String) {
       if let safeThreshold = LogLevel(safeThresholdString) {
         thresholdLevel = safeThreshold
@@ -62,6 +83,8 @@ This class is the base class, from which all appenders should inherit.
   }
   
   final func log(_ log: String, level: LogLevel, info: LogInfoDictionary) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     if(level.rawValue >= self.thresholdLevel.rawValue) {
       let logMessage: String
       

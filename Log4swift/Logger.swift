@@ -23,7 +23,7 @@ import Foundation
 /**
 A logger is identified by a UTI identifier, it defines a threshold level and a destination appender
 */
-@objc public final class Logger: NSObject {
+@objc public final class Logger: NSObject, Sendable {
   public enum DictionaryKey: String {
     case ThresholdLevel = "ThresholdLevel"
     case AppenderIds = "AppenderIds"
@@ -45,26 +45,33 @@ A logger is identified by a UTI identifier, it defines a threshold level and a d
   /// The UTI string that identifies the logger. Example : product.module.feature
   public let identifier: String
   
-  internal var parent: Logger?
-  
-  private var thresholdLevelStorage: LogLevel
-  private var appendersStorage: [Appender]
-  private var asynchronousStorage = false
+  private struct State {
+    var parent: Logger?
+    var thresholdLevel: LogLevel
+    var appenders: [Appender]
+    var asynchronous = false
+  }
+  private let state: Synchronized<State>
+
+  internal var parent: Logger? {
+    get { state.withValue { $0.parent } }
+    set { state.withValue { $0.parent = newValue } }
+  }
 
   /// If asynchronous is true, only the minimum of work will be done on the main thread, the rest will be deffered to a low priority background thread.
   /// The order of the messages will be preserved in async mode.
   @objc
   public var asynchronous: Bool {
     get {
-      if let parent = self.parent {
-        return parent.asynchronous
-      } else {
-        return self.asynchronousStorage
+      state.withValue { state in
+        state.parent?.asynchronous ?? state.asynchronous
       }
     }
     set {
-      self.breakDependencyWithParent()
-      self.asynchronousStorage = newValue
+      withLoggingLock {
+        self.breakDependencyWithParent()
+        state.withValue { $0.asynchronous = newValue }
+      }
     }
   }
   
@@ -75,15 +82,15 @@ A logger is identified by a UTI identifier, it defines a threshold level and a d
   @objc
   public var thresholdLevel: LogLevel {
     get {
-      if let parent = self.parent {
-        return parent.thresholdLevel
-      } else {
-        return self.thresholdLevelStorage
+      state.withValue { state in
+        state.parent?.thresholdLevel ?? state.thresholdLevel
       }
     }
     set {
-      self.breakDependencyWithParent()
-      self.thresholdLevelStorage = newValue
+      withLoggingLock {
+        self.breakDependencyWithParent()
+        state.withValue { $0.thresholdLevel = newValue }
+      }
     }
   }
 
@@ -91,15 +98,22 @@ A logger is identified by a UTI identifier, it defines a threshold level and a d
   @objc
   public var appenders: [Appender] {
     get {
-      if let parent = self.parent {
-        return parent.appenders
-      } else {
-        return self.appendersStorage
+      state.withValue { state in
+        state.parent?.appenders ?? state.appenders
       }
     }
     set {
-      self.breakDependencyWithParent()
-      self.appendersStorage = newValue
+      withLoggingLock {
+        self.breakDependencyWithParent()
+        state.withValue { $0.appenders = newValue }
+      }
+    }
+    _modify {
+      loggingStateLock.lock()
+      defer { loggingStateLock.unlock() }
+      var value = self.appenders
+      defer { self.appenders = value }
+      yield &value
     }
   }
 
@@ -109,8 +123,7 @@ A logger is identified by a UTI identifier, it defines a threshold level and a d
   @objc
   public init(identifier: String, level: LogLevel = LogLevel.Debug, appenders: [Appender] = []) {
     self.identifier = identifier
-    self.thresholdLevelStorage = level
-    self.appendersStorage = appenders
+    self.state = Synchronized(State(thresholdLevel: level, appenders: appenders))
   }
 
   @objc
@@ -122,12 +135,16 @@ A logger is identified by a UTI identifier, it defines a threshold level and a d
   /// The created logger will follow the parent logger's configuration until it is manually modified.
   @objc
   public convenience init(parentLogger: Logger, identifier: String) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     self.init(identifier: identifier, level: parentLogger.thresholdLevel, appenders: [Appender]() + parentLogger.appenders)
     self.parent = parentLogger
   }
   
   /// Updates the logger with the content of the configuration dictionary.
   internal func update(withDictionary dictionary: Dictionary<String, Any>, availableAppenders: Array<Appender>) throws {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     breakDependencyWithParent()
     
     if let safeLevelString = dictionary[DictionaryKey.ThresholdLevel.rawValue] as? String {
@@ -139,14 +156,15 @@ A logger is identified by a UTI identifier, it defines a threshold level and a d
     }
     
     if let appenderIds = dictionary[DictionaryKey.AppenderIds.rawValue] as? Array<String> {
-      appendersStorage.removeAll()
+      var selectedAppenders = [Appender]()
       for currentAppenderId in appenderIds {
 				if let foundAppender = availableAppenders.find(filter: {$0.identifier == currentAppenderId}) {
-          appendersStorage.append(foundAppender)
+          selectedAppenders.append(foundAppender)
         } else {
           throw NSError.Log4swiftError(description: "No such appender '\(currentAppenderId)' for logger \(self.identifier)")
         }
       }
+      self.appenders = selectedAppenders
     }
     
     if let asynchronous = dictionary[DictionaryKey.Asynchronous.rawValue] as? Bool {
@@ -155,9 +173,11 @@ A logger is identified by a UTI identifier, it defines a threshold level and a d
   }
   
   func resetConfiguration() {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     self.thresholdLevel = .Debug
     self.appenders = Logger.createDefaultAppenders()
-    self.asynchronousStorage = false
+    self.asynchronous = false
   }
   
   // MARK: Logging methods
@@ -195,44 +215,46 @@ A logger is identified by a UTI identifier, it defines a threshold level and a d
 
   /// Logs a the message returned by the closure with a debug level
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public func trace(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping () -> String) {
+  @nonobjc public func trace(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping @Sendable () -> String) {
 		self.log(closure: closure, level: LogLevel.Trace, file: file, line: line, function: function)
   }
   /// Logs a the message returned by the closure with a debug level
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public func debug(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping () -> String) {
+  @nonobjc public func debug(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping @Sendable () -> String) {
     self.log(closure: closure, level: LogLevel.Debug, file: file, line: line, function: function)
   }
   /// Logs a the message returned by the closure with an info level
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public func info(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping () -> String) {
+  @nonobjc public func info(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping @Sendable () -> String) {
     self.log(closure: closure, level: LogLevel.Info, file: file, line: line, function: function)
   }
   /// Logs a the message returned by the closure with a warning level
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public func warning(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping () -> String) {
+  @nonobjc public func warning(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping @Sendable () -> String) {
     self.log(closure: closure, level: LogLevel.Warning, file: file, line: line, function: function)
   }
   /// Logs a the message returned by the closure with an error level
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public func error(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping () -> String) {
+  @nonobjc public func error(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping @Sendable () -> String) {
     self.log(closure: closure, level: LogLevel.Error, file: file, line: line, function: function)
   }
   /// Logs a the message returned by the closure with a fatal level
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public func fatal(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping () -> String) {
+  @nonobjc public func fatal(file: String = #file, line: Int = #line, function: String = #function, closure: @escaping @Sendable () -> String) {
     self.log(closure: closure, level: LogLevel.Fatal, file: file, line: line, function: function)
   }
   
   /// Returns true if a message sent with the given level will be issued by at least one appender.
   public func willIssueLogForLevel(_ level: LogLevel) -> Bool {
-    return level.rawValue >= self.thresholdLevel.rawValue && self.appenders.reduce(false) { (shouldLog, currentAppender) in
-      shouldLog || level.rawValue >= currentAppender.thresholdLevel.rawValue
+    return withLoggingLock {
+      level.rawValue >= self.thresholdLevel.rawValue && self.appenders.contains {
+        level.rawValue >= $0.thresholdLevel.rawValue
+      }
     }
   }
   
   @nonobjc internal func log(message: String, level: LogLevel, file: String? = nil, line: Int? = nil, function: String? = nil) {
-    if(self.willIssueLogForLevel(level)) {
+    if let configuration = configurationForLog(level) {
       var info: LogInfoDictionary = [
         .LoggerName: self.identifier,
         .LogLevel: level,
@@ -250,18 +272,20 @@ A logger is identified by a UTI identifier, it defines a threshold level and a d
         info[.Function] = function
       }
 
-      let logClosure = {
-        for currentAppender in self.appenders {
-					currentAppender.log(message, level:level, info: info)
+      let appenders = configuration.appenders
+      let metadata = info
+      let logClosure: @Sendable () -> Void = {
+        for currentAppender in appenders {
+					currentAppender.log(message, level:level, info: metadata)
         }
       }
 
-      self.executeLogClosure(logClosure)
+      self.executeLogClosure(logClosure, asynchronously: configuration.asynchronous)
     }
   }
   
-  @nonobjc internal func log(closure: @escaping () -> (String), level: LogLevel, file: String? = nil, line: Int? = nil, function: String? = nil) {
-    if(self.willIssueLogForLevel(level)) {
+  @nonobjc internal func log(closure: @escaping @Sendable () -> (String), level: LogLevel, file: String? = nil, line: Int? = nil, function: String? = nil) {
+    if let configuration = configurationForLog(level) {
       var info: LogInfoDictionary = [
         .LoggerName: self.identifier,
         .LogLevel: level,
@@ -279,19 +303,28 @@ A logger is identified by a UTI identifier, it defines a threshold level and a d
         info[.Function] = function
       }
 
-      let logClosure = {
+      let appenders = configuration.appenders
+      let metadata = info
+      let logClosure: @Sendable () -> Void = {
         let logMessage = closure()
-        for currentAppender in self.appenders {
-					currentAppender.log(logMessage, level:level, info: info)
+        for currentAppender in appenders {
+					currentAppender.log(logMessage, level:level, info: metadata)
         }
       }
-      self.executeLogClosure(logClosure)
+      self.executeLogClosure(logClosure, asynchronously: configuration.asynchronous)
     }
   }
   
   // MARK: Private methods
-  private func executeLogClosure(_ logClosure: @escaping () -> ()) {
-    if(self.asynchronous) {
+  private func configurationForLog(_ level: LogLevel) -> (appenders: [Appender], asynchronous: Bool)? {
+    withLoggingLock {
+      guard willIssueLogForLevel(level) else { return nil }
+      return (appenders, asynchronous)
+    }
+  }
+
+  private func executeLogClosure(_ logClosure: @escaping @Sendable () -> (), asynchronously: Bool) {
+    if asynchronously {
       Logger.loggingQueue.async(execute: logClosure)
     } else {
       logClosure()
@@ -302,9 +335,12 @@ A logger is identified by a UTI identifier, it defines a threshold level and a d
     guard let parent = self.parent else {
       return
     }
-    self.thresholdLevelStorage = parent.thresholdLevel
-    self.appendersStorage = parent.appenders
-    self.parent = nil
+    state.withValue {
+      $0.thresholdLevel = parent.thresholdLevel
+      $0.appenders = parent.appenders
+      $0.asynchronous = parent.asynchronous
+      $0.parent = nil
+    }
   }
 
   private final class func createDefaultAppenders() -> [Appender] {
@@ -320,7 +356,7 @@ private func currentThreadName() -> String {
     var name: String = Thread.current.name ?? ""
     if name.isEmpty {
       let queueNameBytes = __dispatch_queue_get_label(nil)
-      if let queuName = String(validatingUTF8: queueNameBytes) {
+      if let queuName = String(validatingCString: queueNameBytes) {
         name = queuName
       }
     }

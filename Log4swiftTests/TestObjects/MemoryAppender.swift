@@ -27,9 +27,20 @@ typealias LoggedMessage = (message: String, level: LogLevel)
  This test appender will store logs in memory for latter validation.
  It can also add a delay when logging messages.
 */
-class MemoryAppender: Appender {
-  var loggingDelay: TimeInterval? = nil
-  var logMessages = [LoggedMessage]()
+final class MemoryAppender: Appender, @unchecked Sendable {
+  private struct State {
+    var loggingDelay: TimeInterval?
+    var logMessages = [LoggedMessage]()
+  }
+  private let state = Synchronized(State())
+  var loggingDelay: TimeInterval? {
+    get { state.withValue { $0.loggingDelay } }
+    set { state.withValue { $0.loggingDelay = newValue } }
+  }
+  var logMessages: [LoggedMessage] {
+    get { state.withValue { $0.logMessages } }
+    set { state.withValue { $0.logMessages = newValue } }
+  }
   
   init() {
     super.init("test.memoryAppender")
@@ -43,7 +54,7 @@ class MemoryAppender: Appender {
     if let loggingDelay = self.loggingDelay {
       Thread.sleep(forTimeInterval: loggingDelay)
     }
-    logMessages.append((message: log, level: level))
+    state.withValue { $0.logMessages.append((message: log, level: level)) }
   }
   
 }

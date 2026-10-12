@@ -25,7 +25,7 @@ StdOutAppender will print the log to stdout or stderr depending on thresholds an
 * If general threshold is reached but error threshold is undefined or not reached, log will be printed to stdout
 * If both general and error threshold are reached, log will be printed to stderr
 */
-public class StdOutAppender: Appender {
+public class StdOutAppender: Appender, @unchecked Sendable {
   public enum DictionaryKey: String {
     case ErrorThreshold = "ErrorThresholdLevel"
     case TextColors = "TextColors"
@@ -53,28 +53,50 @@ public class StdOutAppender: Appender {
   /// ttyType will determine what color codes should be used if colors are enabled.
   /// This is supposed to be automatically detected when creating the logger.
   /// Change that only if you need to override the automatic detection.
-  public var ttyType: TTYType
-  public var errorThresholdLevel: LogLevel? = .Error
-  internal fileprivate(set) var textColors = [LogLevel: TTYColor]()
-  internal fileprivate(set) var backgroundColors = [LogLevel: TTYColor]()
+  private struct State {
+    var ttyType: TTYType
+    var errorThresholdLevel: LogLevel? = .Error
+    var textColors = [LogLevel: TTYColor]()
+    var backgroundColors = [LogLevel: TTYColor]()
+  }
+  private let state: Synchronized<State>
+  public var ttyType: TTYType {
+    get { state.withValue { $0.ttyType } }
+    set { state.withValue { $0.ttyType = newValue } }
+  }
+  public var errorThresholdLevel: LogLevel? {
+    get { state.withValue { $0.errorThresholdLevel } }
+    set { state.withValue { $0.errorThresholdLevel = newValue } }
+  }
+  internal fileprivate(set) var textColors: [LogLevel: TTYColor] {
+    get { state.withValue { $0.textColors } }
+    set { state.withValue { $0.textColors = newValue } }
+  }
+  internal fileprivate(set) var backgroundColors: [LogLevel: TTYColor] {
+    get { state.withValue { $0.backgroundColors } }
+    set { state.withValue { $0.backgroundColors = newValue } }
+  }
   
   @objc
   public required init(_ identifier: String) {
     let xcodeColors = ProcessInfo().environment["XcodeColors"]
     let terminalType = ProcessInfo().environment["TERM"]
+    let ttyType: TTYType
     switch (xcodeColors, terminalType) {
     case (.some("YES"), _):
-      self.ttyType = .XcodeColors
+      ttyType = .XcodeColors
     case (_, .some("xterm-256color")):
-      self.ttyType = .XtermColor
+      ttyType = .XtermColor
     default:
-      self.ttyType = .Other
+      ttyType = .Other
     }
-    
+    self.state = Synchronized(State(ttyType: ttyType))
     super.init(identifier)
   }
   
   public override func update(withDictionary dictionary: Dictionary<String, Any>, availableFormatters: Array<Formatter>) throws {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     
 		try super.update(withDictionary: dictionary, availableFormatters: availableFormatters)
     
@@ -120,16 +142,22 @@ public class StdOutAppender: Appender {
   }
   
   public override func performLog(_ log: String, level: LogLevel, info: LogInfoDictionary) {
-    var destinationFile = stdout
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
+    var destinationFile = FileHandle.standardOutput
     
     if let errorThresholdLevel = self.errorThresholdLevel {
       if(level.rawValue >= errorThresholdLevel.rawValue) {
-        destinationFile  = stderr
+        destinationFile = FileHandle.standardError
       }
     }
     
 		let finalLogString = self.colorizeLog(log: log, level: level) + "\n"
-    fputs(finalLogString, destinationFile)
+    do {
+      try destinationFile.write(contentsOf: Data(finalLogString.utf8))
+    } catch {
+      NSLog("Appender \(self.identifier) failed to write to console: \(error)")
+    }
   }
   
 }
@@ -312,6 +340,8 @@ extension StdOutAppender {
   /// :param: color The color to set, or nil to set no color
   /// :param: level The log level to which the provided color applies
   public func setTextColor(_ color: TTYColor?, forLevel level: LogLevel) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     if let color = color {
       self.textColors[level] = color
     } else {
@@ -322,6 +352,8 @@ extension StdOutAppender {
   /// :param: color The color to set, or nil to set no color
   /// :param: level The log level to which the provided color applies
   public func setBackgroundColor(_ color: TTYColor?, forLevel level: LogLevel) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     if let color = color {
       self.backgroundColors[level] = color
     } else {

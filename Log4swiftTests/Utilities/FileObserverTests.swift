@@ -9,8 +9,9 @@
 import XCTest
 @testable import Log4swift
 
-private class FakeObserverDelegate: FileObserverDelegate {
-  var changes = Array<String>()
+private final class FakeObserverDelegate: FileObserverDelegate {
+  private let storage = Synchronized([String]())
+  var changes: [String] { storage.withValue { $0 } }
   let expectation: XCTestExpectation?
   
   init(expectation: XCTestExpectation? = nil) {
@@ -18,7 +19,7 @@ private class FakeObserverDelegate: FileObserverDelegate {
   }
   
   func fileChanged(atPath filePath: String) {
-    changes.append(filePath)
+    storage.withValue { $0.append(filePath) }
     expectation?.fulfill()
   }
 }
@@ -63,7 +64,7 @@ class FileObserverTests: XCTestCase {
     // Execute
 		try! "modified test file content".write(toFile: filePath, atomically: false, encoding: String.Encoding.utf8)
     
-		waitForExpectations(timeout: Double(observer.poolInterval * 2.0), handler: nil)
+		wait(for: [expectation], timeout: Double(observer.poolInterval * 2.0))
     
     // Validate
     XCTAssertEqual(delegate.changes.count, 1, "Delegate should have received one modification notification")
@@ -79,7 +80,7 @@ class FileObserverTests: XCTestCase {
     // Execute
 		try! "modified test file content".write(toFile: filePath, atomically: false, encoding: String.Encoding.utf8)
     
-		waitForExpectations(timeout: Double(observer.poolInterval * 2.0), handler: nil)
+		wait(for: [expectation], timeout: Double(observer.poolInterval * 2.0))
     
     // Validate
     XCTAssertEqual(delegate.changes.count, 1, "Delegate should have received one modification notification")

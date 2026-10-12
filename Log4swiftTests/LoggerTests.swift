@@ -49,55 +49,55 @@ class LoggerTests: XCTestCase {
   //MARK: Log closure
   
   func testLogWithClosureWillCallClosureIfNoThresholdPreventsLogging() {
-    var closureCalled = false
+    let closureCalled = Synchronized(false)
     let logger = Logger()
     
     logger.thresholdLevel = .Info
     
     // Execute
     logger.fatal(closure: {
-      closureCalled = true
+      closureCalled.withValue { $0 = true }
       return ""
     })
     
     // Validate
-    XCTAssertTrue(closureCalled)
+    XCTAssertTrue(closureCalled.withValue { $0 })
   }
   
   func testLogWithClosureWillNotCallClosureIfLoggerThresholdsPreventsLogging() {
-    var closureCalled = false
+    let closureCalled = Synchronized(false)
     let logger = Logger()
     
     logger.thresholdLevel = .Info
     
     // Execute
     logger.debug(closure: {
-      closureCalled = true
+      closureCalled.withValue { $0 = true }
       return ""
     })
     
     // Validate
-    XCTAssertFalse(closureCalled, "Closure should not be call if logger threshold is not reached")
+    XCTAssertFalse(closureCalled.withValue { $0 }, "Closure should not be call if logger threshold is not reached")
   }
   
   func testLogWithClosureWorksWithTrailingClosure() {
-    var closureCalled = false
+    let closureCalled = Synchronized(false)
     let logger = Logger()
     
     logger.thresholdLevel = .Info
     
     // Execute
     logger.info {
-      closureCalled = true
+      closureCalled.withValue { $0 = true }
       return ""
     }
     
     // Validate
-    XCTAssertTrue(closureCalled)
+    XCTAssertTrue(closureCalled.withValue { $0 })
   }
   
   func testLogWithClosureWillNotCallClosureIfAppendersThresholdsPreventsLogging() {
-    var closureCalled = false
+    let closureCalled = Synchronized(false)
     let logger = Logger()
     let appender1 = MemoryAppender()
     let appender2 = MemoryAppender()
@@ -108,16 +108,16 @@ class LoggerTests: XCTestCase {
     
     // Execute
     logger.debug(closure: {
-      closureCalled = true
+      closureCalled.withValue { $0 = true }
       return ""
     })
     
     // Validate
-    XCTAssertFalse(closureCalled, "Closure should not be call if no appender threshold is reached")
+    XCTAssertFalse(closureCalled.withValue { $0 }, "Closure should not be call if no appender threshold is reached")
   }
   
   func testLogWithClosureWillCallClosureIfLogWillBeIssuedByAtLeastOneAppender() {
-    var closureCalled = false
+    let closureCalled = Synchronized(false)
     let logger = Logger()
     let appender1 = MemoryAppender()
     let appender2 = MemoryAppender()
@@ -128,12 +128,12 @@ class LoggerTests: XCTestCase {
     
     // Execute
     logger.debug {
-      closureCalled = true
+      closureCalled.withValue { $0 = true }
       return ""
     }
     
     // Validate
-    XCTAssertTrue(closureCalled, "Closure should have been called")
+    XCTAssertTrue(closureCalled.withValue { $0 }, "Closure should have been called")
   }
   
   //MARK: Static log methods
@@ -648,8 +648,8 @@ class LoggerTests: XCTestCase {
   
   func testLoggerLogsNSThreadNameAndId() {
     @objc class MyThreadClass : NSObject {
-      var logMessage = ""
-      var threadId: UInt64 = 0
+      let result = Synchronized((message: "", threadId: UInt64(0)))
+      let completed = XCTestExpectation(description: "Thread completed")
       
       @objc func loggingMethod(_ object: AnyObject?) {
         let formatter = try! PatternFormatter(identifier:"testFormatter", pattern: "%t %T %m")
@@ -662,8 +662,8 @@ class LoggerTests: XCTestCase {
         // Execute
         logger.debug("ping")
         
-        threadId = currentThreadId()
-        logMessage = appender.logMessages[0].message
+        result.withValue { $0 = (appender.logMessages[0].message, currentThreadId()) }
+        completed.fulfill()
       }
     }
     
@@ -676,19 +676,17 @@ class LoggerTests: XCTestCase {
     thread.threadPriority = 0.75
     thread.start()
 
-    // Using expectation causes a crash in that context, when running on xcode 10
-    usleep(500)
-    
-    let threadId = String(myInstance.threadId, radix: 16, uppercase: false)
+    wait(for: [myInstance.completed], timeout: 3)
+    let result = myInstance.result.withValue { $0 }
+    let threadId = String(result.threadId, radix: 16, uppercase: false)
     
     // Validate
-    XCTAssertEqual(myInstance.logMessage, "\(threadId) someThreadName ping")
+    XCTAssertEqual(result.message, "\(threadId) someThreadName ping")
   }
   
   
   func testLoggerLogsGCDQueueNameAndId() {
-    var logMessage = ""
-    var tid: UInt64 = 0
+    let result = Synchronized((message: "", threadId: UInt64(0)))
 
     let expectation = self.expectation(description: "logIssued")
 
@@ -705,23 +703,23 @@ class LoggerTests: XCTestCase {
       // Execute
       logger.debug("ping")
 
-      tid = currentThreadId()
-      logMessage = appender.logMessages[0].message
+      result.withValue { $0 = (appender.logMessages[0].message, currentThreadId()) }
 
       expectation.fulfill()
     }
 
-    waitForExpectations(timeout: 1.0, handler: nil)
+    wait(for: [expectation], timeout: 1.0)
     
-    let threadId = String(tid, radix: 16, uppercase: false)
+    let logged = result.withValue { $0 }
+    let threadId = String(logged.threadId, radix: 16, uppercase: false)
     
     // Validate
-    XCTAssertEqual(logMessage, "\(threadId) someQueueName ping")
+    XCTAssertEqual(logged.message, "\(threadId) someQueueName ping")
   }
 
 }
 
- class TestExpectation: XCTestExpectation {
+ class TestExpectation: XCTestExpectation, @unchecked Sendable {
   deinit {
     NSLog("######## deinit")
   }

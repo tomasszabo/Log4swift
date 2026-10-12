@@ -62,32 +62,32 @@ extension Logger {
 
   /// Logs a the message returned by the closer with a trace level using the root logger of the shared logger factory
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public class func trace(closure: @escaping () -> (String)) {
+  @nonobjc public class func trace(closure: @escaping @Sendable () -> (String)) {
 		LoggerFactory.sharedInstance.rootLogger.log(closure: closure, level: .Trace)
   }
   /// Logs a the message returned by the closer with a debug level using the root logger of the shared logger factory
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public class func debug(closure: @escaping () -> (String)) {
+  @nonobjc public class func debug(closure: @escaping @Sendable () -> (String)) {
     LoggerFactory.sharedInstance.rootLogger.log(closure: closure, level: .Debug)
   }
   /// Logs a the message returned by the closer with an info level using the root logger of the shared logger factory
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public class func info(closure: @escaping () -> (String)) {
+  @nonobjc public class func info(closure: @escaping @Sendable () -> (String)) {
     LoggerFactory.sharedInstance.rootLogger.log(closure: closure, level: .Info)
   }
   /// Logs a the message returned by the closer with a warning level using the root logger of the shared logger factory
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public class func warning(closure: @escaping () -> (String)) {
+  @nonobjc public class func warning(closure: @escaping @Sendable () -> (String)) {
     LoggerFactory.sharedInstance.rootLogger.log(closure: closure, level: .Warning)
   }
   /// Logs a the message returned by the closer with an error level using the root logger of the shared logger factory
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public class func error(closure: @escaping () -> (String)) {
+  @nonobjc public class func error(closure: @escaping @Sendable () -> (String)) {
     LoggerFactory.sharedInstance.rootLogger.log(closure: closure, level: .Error)
   }
   /// Logs a the message returned by the closer with a fatal level using the root logger of the shared logger factory
   /// If the logger's or appender's configuration prevents the message to be issued, the closure will not be called.
-  @nonobjc public class func fatal(closure: @escaping () -> (String)) {
+  @nonobjc public class func fatal(closure: @escaping @Sendable () -> (String)) {
     LoggerFactory.sharedInstance.rootLogger.log(closure: closure, level: .Fatal)
   }
   

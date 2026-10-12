@@ -24,45 +24,78 @@ import Foundation
 This appender will write logs to a file.
 If file does not exist, it will be created on the first log, or re-created if deleted or moved (compatible with log rotate systems).
 */
-public class FileAppender : Appender {
+public class FileAppender : Appender, @unchecked Sendable {
   public enum DictionaryKey: String {
     case FilePath = "FilePath"
     case MaxFileAge = "MaxFileAge"
     case MaxFileSize = "MaxFileSize"
   }
   
+  private struct State {
+    var filePath: String
+    var rotationPolicies = [FileAppenderRotationPolicy]()
+    var maxFileSize: UInt64?
+    var maxRotatedFiles: UInt?
+    var fileHandler: FileHandle?
+    var currentFileSize: UInt64?
+    var didLogFailure = false
+  }
+  private let state: Synchronized<State>
   @objc
-  public internal(set) var filePath : String {
-    didSet {
-      if let safeHandler = self.fileHandler {
-        safeHandler.closeFile()
-        self.fileHandler = nil
+  public internal(set) var filePath: String {
+    get { state.withValue { $0.filePath } }
+    set {
+      state.withValue {
+        $0.fileHandler?.closeFile()
+        $0.fileHandler = nil
+        $0.filePath = (newValue as NSString).expandingTildeInPath
+        $0.didLogFailure = false
       }
-      self.filePath = (self.filePath as NSString).expandingTildeInPath
-      didLogFailure = false
     }
   }
   
   /// The rotation policies to apply. The file will be rotated if at least
   /// one of the registered policies requests it.
   /// If none are registered, the file will never be rotated.
-  public var rotationPolicies = [FileAppenderRotationPolicy]()
-  public var maxFileSize: UInt64?
+  public var rotationPolicies: [FileAppenderRotationPolicy] {
+    get { state.withValue { $0.rotationPolicies } }
+    set { state.withValue { $0.rotationPolicies = newValue } }
+    _modify {
+      loggingStateLock.lock()
+      defer { loggingStateLock.unlock() }
+      var value = self.rotationPolicies
+      defer { self.rotationPolicies = value }
+      yield &value
+    }
+  }
+  public var maxFileSize: UInt64? {
+    get { state.withValue { $0.maxFileSize } }
+    set { state.withValue { $0.maxFileSize = newValue } }
+  }
   
   /// The maximum number of rotated log files kept.
   /// Files exceeding this limit will be deleted during rotation.
-  public var maxRotatedFiles: UInt?
+  public var maxRotatedFiles: UInt? {
+    get { state.withValue { $0.maxRotatedFiles } }
+    set { state.withValue { $0.maxRotatedFiles = newValue } }
+  }
   
-  private var fileHandler: FileHandle?
-  private var currentFileSize: UInt64?
-  private var didLogFailure = false
-  private var loggingMutex = PThreadMutex()
+  private var fileHandler: FileHandle? {
+    get { state.withValue { $0.fileHandler } }
+    set { state.withValue { $0.fileHandler = newValue } }
+  }
+  private var currentFileSize: UInt64? {
+    get { state.withValue { $0.currentFileSize } }
+    set { state.withValue { $0.currentFileSize = newValue } }
+  }
+  private var didLogFailure: Bool {
+    get { state.withValue { $0.didLogFailure } }
+    set { state.withValue { $0.didLogFailure = newValue } }
+  }
 
   @objc
   public init(identifier: String, filePath: String) {
-    self.fileHandler = nil
-    self.currentFileSize = nil
-    self.filePath = (filePath as NSString).expandingTildeInPath
+    self.state = Synchronized(State(filePath: (filePath as NSString).expandingTildeInPath))
 
     super.init(identifier)
   }
@@ -84,8 +117,14 @@ public class FileAppender : Appender {
   public required convenience init(_ identifier: String) {
     self.init(identifier: identifier, filePath: "/dev/null")
   }
+
+  deinit {
+    state.withValue { $0.fileHandler?.closeFile() }
+  }
   
 	public override func update(withDictionary dictionary: Dictionary<String, Any>, availableFormatters: Array<Formatter>) throws {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
 		try super.update(withDictionary: dictionary, availableFormatters: availableFormatters)
     
     if let safeFilePath = (dictionary[DictionaryKey.FilePath.rawValue] as? String) {
@@ -123,8 +162,12 @@ public class FileAppender : Appender {
       normalizedLog = normalizedLog + "\n"
     }
     
-    loggingMutex.sync {
-      try? rotateFileIfNeeded()
+    withLoggingLock {
+      do {
+        try rotateFileIfNeeded()
+      } catch {
+        NSLog("Appender \(self.identifier) failed to rotate \(self.filePath): \(error)")
+      }
       guard createFileHandlerIfNeeded() else {
         return
       }
