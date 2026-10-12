@@ -7,10 +7,8 @@ The package, tests, podspec and legacy Xcode configurations use mode 6.
 Synchronous logging from any thread and deferred background logging remain
 supported; the library is **not main-actor-only**.
 
-The Swift 6 migration is under review on `modernization/swift6`. The installation
-examples below intentionally use **`master`**, ready for after this PR is merged.
-Until then, select the review branch to try Swift 6; current `master` still
-contains the merged Swift 5 SPM modernization.
+Swift 6 support is available on **`master`**. Install directly from this fork
+using the examples below, or pin a reviewed commit for reproducible builds.
 
 [![License](https://img.shields.io/badge/License-Apache%20v2.0-blue.svg?style=flat
             )](http://mit-license.org)
@@ -43,8 +41,7 @@ It can be used from Swift or Objective-C (or a mix of both) on the supported App
 ### Swift Package Manager
 
 Add this repository URL in Xcode's **File > Add Package Dependencies**, then
-select the **Log4swift** library product and this fork's **`master`** branch
-after the Swift 6 PR is merged:
+select the **Log4swift** library product and this fork's **`master`** branch:
 
 ```swift
 .package(
@@ -194,7 +191,7 @@ Clone the repo on your machine, and compile the target that feets your need (OS 
 As long as the swift ABI is not stable, you will need to recompile the library if you change the version of the compiler used for your project. Because of that, you should rather consider one of the other methods (see bellow).
 
 ### CocoaPod
-For this fork after the Swift 6 PR is merged into `master`:
+For this fork:
 
 ```ruby
 pod 'Log4swift', :git => 'https://github.com/tomasszabo/Log4swift.git',
