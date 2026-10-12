@@ -34,6 +34,8 @@ extension LoggerFactory : FileObserverDelegate {
   /// - parameter filePath: the path to the file to load
   /// - parameter autoReload: true if the configuration file should be reloaded automatically when modified. If file does not exist, it will be loaded when created. Only one file can be auto-reloaded at a time. If a second file is marked as such, the first one will no longer be.
   @objc public func readConfiguration(fromPlistFile filePath: String, autoReload: Bool = false, reloadInterval: TimeInterval = 5.0) throws {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     let expandedFilePath = (filePath as NSString).expandingTildeInPath
     let configurationNSDictionary = NSDictionary(contentsOfFile: expandedFilePath)
     if let configurationDictionary = configurationNSDictionary as? Dictionary<String, Any> {
@@ -53,6 +55,8 @@ extension LoggerFactory : FileObserverDelegate {
   // This internal method returns all created objects in a tupple, to make testing easier.
   // The public version does not return a tupple, an thus is compatible with Objective-C.
   internal func readConfigurationToTupple(fromDictionary configurationDictionary: Dictionary<String, Any>) throws -> (Array<Formatter>, Array<Appender>, Array<Logger>) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     var formatters = Array<Formatter>()
     var appenders = Array<Appender>()
     var loggers = Array<Logger>()

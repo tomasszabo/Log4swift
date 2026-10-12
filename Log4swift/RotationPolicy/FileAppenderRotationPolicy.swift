@@ -12,7 +12,7 @@ import Foundation
  Implement this protocol to create an object that controls when files
  are rotated by the FileAppender.
  */
-public protocol FileAppenderRotationPolicy {
+public protocol FileAppenderRotationPolicy: Sendable {
   /// Will be called when the file appender opens a destination file.
   /// You can use this hook to collect data on the file.
   func appenderDidOpenFile(atPath path: String)

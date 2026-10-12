@@ -1,10 +1,10 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
     name: "Log4swift",
     platforms: [
-        .macOS(.v10_13), .iOS(.v12), .tvOS(.v12), .watchOS(.v9)
+        .macOS(.v12), .iOS(.v15), .tvOS(.v15), .watchOS(.v9)
     ],
     products: [
         .library(name: "Log4swift", targets: ["Log4swift"])
@@ -52,5 +52,5 @@ let package = Package(
             resources: [.copy("Resources")]
         )
     ],
-    swiftLanguageVersions: [.v5]
+    swiftLanguageModes: [.v6]
 )

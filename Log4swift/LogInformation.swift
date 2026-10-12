@@ -21,7 +21,7 @@
 /**
 Keys used in the information dictionary attached to log messages
 */
-public enum LogInfoKeys {
+public enum LogInfoKeys: Sendable {
   case LogLevel
   case LoggerName
   case FileName
@@ -35,4 +35,4 @@ public enum LogInfoKeys {
 /**
 The definition of the type used to attach meta informations to log messages
 */
-public typealias LogInfoDictionary = Dictionary<LogInfoKeys, CustomStringConvertible>
+public typealias LogInfoDictionary = Dictionary<LogInfoKeys, any CustomStringConvertible & Sendable>

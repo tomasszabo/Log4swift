@@ -23,7 +23,7 @@ import Foundation
 /**
 The NSLog appender uses NSLog to issue the logs. It is not extermely performant, you should only use it if you want to have the exact same behavior as NSLog (same formatting, output to stderr of ALS depending on the situation, ...)
 */
-public class NSLogAppender: Appender {
+public class NSLogAppender: Appender, @unchecked Sendable {
   public override func performLog(_ log: String, level: LogLevel, info: LogInfoDictionary) {
     NSLog(log)
   }

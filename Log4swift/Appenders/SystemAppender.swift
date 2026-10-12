@@ -28,7 +28,7 @@ import Foundation
  This appender is the best suited one for production software that targets multiple platforms.
  */
 @objc
-public class SystemAppender: Appender {
+public class SystemAppender: Appender, @unchecked Sendable {
   public override var thresholdLevel: LogLevel {
     get {
       return self.backendAppender?.thresholdLevel ?? .Off

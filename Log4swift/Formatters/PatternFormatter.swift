@@ -59,14 +59,15 @@ Available markers are :
   public let identifier: String
   
   typealias FormattingClosure = (_ message: String, _ infos: LogInfoDictionary) -> String
-  private var formattingClosuresSequence = [FormattingClosure]()
+  private let formattingClosuresSequence = Synchronized([FormattingClosure]())
   
   /// This initialiser will throw an error if the pattern is not valid.
   public init(identifier: String, pattern: String) throws {
     self.identifier = identifier
     let parser = PatternParser()
     super.init()
-    self.formattingClosuresSequence = try parser.parsePattern(pattern)
+    let sequence = try parser.parsePattern(pattern)
+    self.formattingClosuresSequence.withValue { $0 = sequence }
   }
 
   public required convenience init(_ identifier: String) {
@@ -78,14 +79,17 @@ Available markers are :
 	public func update(withDictionary dictionary: Dictionary<String, Any>) throws {
     if let safePattern = (dictionary[DictionaryKey.Pattern.rawValue] as? String) {
       let parser = PatternParser()
-      self.formattingClosuresSequence = try parser.parsePattern(safePattern)
+      let sequence = try parser.parsePattern(safePattern)
+      self.formattingClosuresSequence.withValue { $0 = sequence }
     } else {
 			throw NSError.Log4swiftError(description: "Missing '\(DictionaryKey.Pattern.rawValue)' parameter for pattern formatter '\(self.identifier)'")
     }
   }
   
   public func format(message: String, info: LogInfoDictionary) -> String {
-    return formattingClosuresSequence.reduce("") { (accumulatedValue, currentItem) in accumulatedValue + currentItem(message, info) }
+    return formattingClosuresSequence.withValue {
+      $0.reduce("") { (accumulatedValue, currentItem) in accumulatedValue + currentItem(message, info) }
+    }
   }
   
   private class PatternParser {

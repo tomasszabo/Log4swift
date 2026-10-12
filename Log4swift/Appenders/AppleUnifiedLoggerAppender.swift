@@ -23,8 +23,8 @@ import os.log
 
 @available(iOS 10.0, macOS 10.12, watchOS 3, tvOS 10.0, *)
 @objc
-public class AppleUnifiedLoggerAppender : Appender {
-  private static var levelsMapping = [
+public class AppleUnifiedLoggerAppender : Appender, @unchecked Sendable {
+  private static let levelsMapping = [
     LogLevel.Trace: OSLogType.debug,
     LogLevel.Debug: OSLogType.debug,
     LogLevel.Info: OSLogType.info,
@@ -32,9 +32,11 @@ public class AppleUnifiedLoggerAppender : Appender {
     LogLevel.Error: OSLogType.error,
     LogLevel.Fatal: OSLogType.fault
   ]
-  private var loggerToOSLogCache = [String: OSLog]()
+  private let loggerToOSLogCache = Synchronized([String: OSLog]())
   
   public override func performLog(_ log: String, level: LogLevel, info: LogInfoDictionary) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     guard let logType = type(of: self).levelsMapping[level] else { return }
     let loggerName = info[LogInfoKeys.LoggerName] as? String ?? "-"
     let osLog = self.osLog(ForLoggerName: loggerName)
@@ -43,12 +45,12 @@ public class AppleUnifiedLoggerAppender : Appender {
   
   private func osLog(ForLoggerName loggerName: String) -> OSLog {
     let osLog: OSLog
-    if let osLogFromCache = self.loggerToOSLogCache[loggerName] {
+    if let osLogFromCache = self.loggerToOSLogCache.withValue({ $0[loggerName] }) {
       osLog = osLogFromCache
     } else {
       let subsystem = Bundle.main.infoDictionary?["CFBundleIdentifier"] as? String ?? "-"
       osLog = OSLog(subsystem: subsystem, category: loggerName)
-      self.loggerToOSLogCache[loggerName] = osLog
+      self.loggerToOSLogCache.withValue { $0[loggerName] = osLog }
     }
     
     return osLog

@@ -1,4 +1,17 @@
 # Log4Swift
+
+## Swift 6
+
+This fork now targets **Swift 6 language mode**, not just a Swift 6 compiler.
+The package, tests, podspec and legacy Xcode configurations use mode 6.
+Synchronous logging from any thread and deferred background logging remain
+supported; the library is **not main-actor-only**.
+
+The Swift 6 migration is under review on `modernization/swift6`. The installation
+examples below intentionally use **`master`**, ready for after this PR is merged.
+Until then, select the review branch to try Swift 6; current `master` still
+contains the merged Swift 5 SPM modernization.
+
 [![License](https://img.shields.io/badge/License-Apache%20v2.0-blue.svg?style=flat
             )](http://mit-license.org)
 ![Platform](http://img.shields.io/badge/platform-macOS,iOS,tvOS-lightgrey.svg?style=flat)
@@ -13,33 +26,30 @@ Log4Swift is a logging library for swift projects, that will allow you to log in
 Its ultimate goal is to be the tool you need to make your logs as valuable as possible, both in your developpment environment and in production.
 
 ## Compatibility
-The modern `swift5` line supports Swift 6 compilers in Swift 5 language mode.
-Swift Package Manager requires Swift tools 5.9 or later and an Apple SDK;
+Swift Package Manager requires **Swift tools/compiler 6.0+** and an Apple SDK;
 it has been validated with Xcode 27 / Swift 6.4 on macOS and iOS Simulator.
-The package declares macOS 10.13, iOS 12, tvOS 12 and watchOS 9 minimums.
-Newer Xcode releases may require higher deployment targets (for example,
-Xcode 27's iOS Simulator SDK requires iOS 15 or later). Existing CocoaPods
-and Xcode framework integrations retain their separate deployment settings.
+The package, CocoaPods spec and legacy Xcode configurations declare
+**macOS 12+, iOS 15+, tvOS 15+ and watchOS 9+**.
 Linux is not supported: Objective-C interoperability, ASL and Apple's
 logging/networking frameworks are required.
 
 - For swift 3, use version 1.0.2 ([tag v1.0.2](https://github.com/jduquennoy/Log4swift/releases/tag/v1.0.2))
 - For swift 2.3, use version 1.0.0b5 ([tag v1.0.0b5](https://github.com/jduquennoy/Log4swift/releases/tag/v1.0.0b5))
 
-It can be used in projects targetting either OS X (>= 10.10), iOS (>= iOS 8) or appleTV, and written either in swift or objective-C (or a mix of those two).
+It can be used from Swift or Objective-C (or a mix of both) on the supported Apple platforms.
 
 ## How to use
 
 ### Swift Package Manager
 
 Add this repository URL in Xcode's **File > Add Package Dependencies**, then
-select the **Log4swift** library product. During pull-request review, use the
-`modernization/swift-package-manager` branch:
+select the **Log4swift** library product and this fork's **`master`** branch
+after the Swift 6 PR is merged:
 
 ```swift
 .package(
   url: "https://github.com/tomasszabo/Log4swift.git",
-  branch: "modernization/swift-package-manager"
+  branch: "master"
 )
 ```
 
@@ -54,8 +64,8 @@ dependencies: [
 .product(name: "Log4swift", package: "log4swift")
 ```
 
-Use `import Log4swift`; the logger, factory, formatter and appender APIs are
-unchanged. The package compiles the ASL wrapper and bundled NSLogger client
+Use `import Log4swift`; synchronous logging syntax is retained, with the Swift 6
+concurrency API changes described below. The package compiles the ASL wrapper and bundled NSLogger client
 in separate native targets and re-exports their declarations. File,
 standard-output, NSLog, ASL, unified/system and NSLogger appenders are
 preserved; NSLogger is excluded on watchOS, as in the existing framework.
@@ -73,25 +83,55 @@ Swift language mode is declared by the package and podspec; the deprecated
 
 #### Language mode and concurrency
 
-Swift 6.4 compiler compatibility does **not** mean Swift 6 language-mode
-or `Sendable` conformance. Swift 6 mode rejects shared mutable state,
-including `LoggerFactory.sharedInstance` and the unified appender's level
-mapping. The legacy mutable factory, configurable appenders and deferred
-message closures cannot honestly be made `Sendable` without redesigning
-their synchronization and public API. The package deliberately uses Swift
-5 mode; it does not hide these issues with unsafe `Sendable` annotations
-or force existing synchronous APIs onto the main actor.
+Swift 6 strict concurrency is enabled for every Swift package target.
+`Logger`, `LoggerFactory`, `PatternFormatter`, built-in rotation policies and
+`FileObserver` have checked Sendable conformance. Shared configuration, caches,
+formatting closures and file resources are protected by one recursive lock
+domain, avoiding lock-order inversions across the logging object graph.
+The factory's file-observer delegate is weak, preventing an auto-reload cycle.
 
-Configure factories, loggers, formatters and appenders from one serialized
-context; do not mutate them concurrently with logging. Asynchronous logging
-orders work on the library's serial queue, but this does not protect all
-configuration state or make arbitrary captured values thread-safe. Swift
-6 client applications must respect their own actor boundaries when using
-this library. To audit (not certify) complete concurrency checking:
+The internal synchronized-state container has a narrowly scoped
+`@unchecked Sendable` conformance because Swift cannot prove lock ownership.
+The open `Appender` base and its subclasses also restate unchecked conformance:
+Swift cannot enforce synchronization in subclass overrides or verify native
+ASL/NSLogger handles. Built-in mutable state and native calls are protected;
+this is a tested synchronization contract, not a blanket concurrency bypass.
 
-```sh
-swift build -Xswiftc -strict-concurrency=complete
+**Breaking changes for custom code:**
+
+- Deferred message closures are `@Sendable`, including Objective-C block
+  entry points when called from Swift. Capture immutable Sendable values or
+  explicitly synchronized state, not mutable local variables or UI objects.
+- `LogInfoDictionary` values must be both `CustomStringConvertible` and
+  `Sendable`. Standard strings, numbers and `LogLevel` satisfy this.
+- Custom `Formatter`, `FileAppenderRotationPolicy` and `FileObserverDelegate`
+  implementations must be Sendable and synchronize mutable state. Observer
+  delegates are class-bound and weakly retained; retain your own delegate.
+- Custom `Appender` subclasses must restate `@unchecked Sendable` and protect
+  **all** mutable state, including property access, direct `performLog` calls
+  and updates. Use the inherited `withSynchronization` helper or an equivalent
+  audited lock. Do not wait for other threads while holding that lock.
+
+```swift
+let logger = Logger.getLogger("my.app")
+let message = "Background work completed"
+Task.detached {
+    logger.info { message }
+}
 ```
+
+Accepted messages capture their destination array and asynchronous mode at
+submission. A later logger reconfiguration does not redirect an already queued
+message. Appender thresholds/formatters are read under synchronization at
+delivery. Deferred messages preserve serial queue submission order and capture
+timestamp/thread metadata on the caller, not the worker.
+
+Configuration setters and logging can run concurrently. For multi-property
+custom updates, use a synchronized block; separate property assignments are not
+an atomic transaction. Synchronization serializes destination work, so slow
+appenders can delay other loggers. Native ASL/NSLogger clients remain Objective-C,
+not internal Swift 5 targets. Raw exported native APIs and Objective-C block
+captures remain the caller's concurrency responsibility.
 
 #### Building and testing
 
@@ -99,6 +139,7 @@ swift build -Xswiftc -strict-concurrency=complete
 swift build
 swift test
 swift build -c release
+swift test --sanitize thread --filter ConcurrencyTests
 ```
 
 The package reuses the meaningful XCTest suite for logging, hierarchical
@@ -125,7 +166,9 @@ xcodebuild -workspace Log4swift-Package.xcworkspace -scheme Log4swift-Package \
   -only-testing:Log4swiftTests/FileAppenderTests \
   -only-testing:Log4swiftTests/SystemAppenderTests \
   -only-testing:Log4swiftTests/SubclassingTests \
-  -only-testing:Log4swiftTests/NativeAppenderPackageTests test
+  -only-testing:Log4swiftTests/NativeAppenderPackageTests \
+  -only-testing:Log4swiftTests/ConcurrencyTests \
+  -parallel-testing-enabled NO test
 ```
 
 The simulator selection omits legacy stdout descriptor-redirection tests
@@ -137,37 +180,41 @@ test sandbox's Application Support directory on iOS, not the system temporary
 directory. CI runs the macOS suite, release build, representative iOS tests
 and an unsigned legacy iOS framework build. No signing credentials, physical
 devices or NSLogger viewers are needed.
-Local validation with Xcode 27 / Swift 6.4 passed 255 macOS tests, 154 selected iOS
-simulator tests, Release package compilation, tvOS/watchOS simulator compilation,
-and the legacy iOS framework build. iOS CocoaPods lint also passed with warnings
-allowed, signing disabled and deployment overridden to iOS 15 to meet Xcode 27's
-supported simulator floor. Older deployment targets and external log viewers
-were not runtime-tested.
+Swift 6 validation with Xcode 27 / Swift 6.4 passes **265 macOS tests**,
+**164 selected iOS simulator tests**, and **11 concurrency/subclassing tests
+under Thread Sanitizer**, with no sanitizer race reports. macOS/iOS/tvOS/watchOS
+Release package builds, the unsigned legacy iOS framework build and iOS
+CocoaPods lint pass. Compiler commands confirm actual `-swift-version 6`;
+no logger concurrency warnings remain. Existing native ASL/NSLogger deprecation
+warnings remain. Older deployment targets and external log viewers were not
+runtime-tested.
 
 ### Manually
 Clone the repo on your machine, and compile the target that feets your need (OS X, iOS, ...). It will produce a library that you can use in your project.
 As long as the swift ABI is not stable, you will need to recompile the library if you change the version of the compiler used for your project. Because of that, you should rather consider one of the other methods (see bellow).
 
 ### CocoaPod
-For this fork's unreleased modernization changes:
+For this fork after the Swift 6 PR is merged into `master`:
 
 ```ruby
 pod 'Log4swift', :git => 'https://github.com/tomasszabo/Log4swift.git',
-                :branch => 'modernization/swift-package-manager'
+                :branch => 'master'
 ```
 
 Add those lines to your Podfile to embed this library in an iOS project (with the versions you want for the lib and the target):
 
 ```
-platform :ios, '8'
-pod 'Log4swift', '1.0.4'
+platform :ios, '15.0'
+pod 'Log4swift', :git => 'https://github.com/tomasszabo/Log4swift.git',
+                :branch => 'master'
 use_frameworks!
 ```
 And in an OS X project :
 
 ```
-platform :osx, '10.10'
-pod 'Log4swift', '1.0.4'
+platform :osx, '12.0'
+pod 'Log4swift', :git => 'https://github.com/tomasszabo/Log4swift.git',
+                :branch => 'master'
 use_frameworks!
 ```
 
@@ -175,7 +222,7 @@ use_frameworks!
 Add this line to your Cartfile (with the version you want):
 
 ```
-github "jduquennoy/Log4swift" ~> 1.0.4
+github "tomasszabo/Log4swift" "master"
 ```
 
 ## Features

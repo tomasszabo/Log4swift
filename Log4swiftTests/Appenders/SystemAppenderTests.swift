@@ -9,8 +9,12 @@
 import XCTest
 @testable import Log4swift
 
-class TestAppender: Appender {
-  var didPerformLog = false
+final class TestAppender: Appender, @unchecked Sendable {
+  private let storage = Synchronized(false)
+  var didPerformLog: Bool {
+    get { storage.withValue { $0 } }
+    set { storage.withValue { $0 = newValue } }
+  }
   override func performLog(_ log: String, level: LogLevel, info: LogInfoDictionary) {
     self.didPerformLog = true
   }

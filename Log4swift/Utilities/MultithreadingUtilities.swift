@@ -61,3 +61,27 @@ internal extension PThreadMutex {
     return try execute()
   }
 }
+
+// One recursive domain avoids lock-order inversions across the
+// factory -> logger -> appender -> formatter/rotation-policy graph.
+internal let loggingStateLock = NSRecursiveLock()
+
+internal func withLoggingLock<Result>(_ body: () throws -> Result) rethrows -> Result {
+  loggingStateLock.lock()
+  defer { loggingStateLock.unlock() }
+  return try body()
+}
+
+// Non-Sendable resources and formatting closures must only be used inside
+// synchronized operations; callers must not let those values escape.
+internal final class Synchronized<Value>: @unchecked Sendable {
+  private var value: Value
+
+  init(_ value: Value) {
+    self.value = value
+  }
+
+  func withValue<Result>(_ body: (inout Value) throws -> Result) rethrows -> Result {
+    try withLoggingLock { try body(&value) }
+  }
+}

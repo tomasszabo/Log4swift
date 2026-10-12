@@ -28,7 +28,7 @@ import Foundation
 The NSLogger appender relies on the NSLogger project (see https://github.com/fpillet/NSLogger) to send log messages over the network.  
 */
 @available(iOS 8.0, *)
-public class NSLoggerAppender : Appender {
+public class NSLoggerAppender : Appender, @unchecked Sendable {
   public enum DictionaryKey: String {
     case BonjourServiceName = "BonjourServiceName"
     case UseLocalCache = "UseLocalCache"
@@ -64,6 +64,8 @@ public class NSLoggerAppender : Appender {
   }
 
   public override func update(withDictionary dictionary: Dictionary<String, Any>, availableFormatters: Array<Formatter>) throws {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
 		try super.update(withDictionary: dictionary, availableFormatters: availableFormatters)
     
     let bonjourMode = (dictionary[DictionaryKey.BonjourServiceName.rawValue] != nil)
@@ -131,6 +133,8 @@ public class NSLoggerAppender : Appender {
   }
   
   public override func performLog(_ log: String, level: LogLevel, info: LogInfoDictionary) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     var loggerId = ""
     if let safeLoggerId = info[LogInfoKeys.LoggerName] {
       loggerId = safeLoggerId.description
@@ -139,6 +143,8 @@ public class NSLoggerAppender : Appender {
   }
   
   private func setupBonjourLogger(bonjourServiceName: String, useLocalCache: Bool, useSSL: Bool) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     var options = UInt32(kLoggerOption_BrowseBonjour)
     if(useLocalCache) {
       options |= UInt32(kLoggerOption_BufferLogsUntilConnection)
@@ -154,6 +160,8 @@ public class NSLoggerAppender : Appender {
 }
   
   private func setupTcpLogger(remoteHost: String, remotePort: UInt32, useLocalCache: Bool, useSSL: Bool) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     var options = UInt32(0)
     if(useLocalCache) {
       options |= UInt32(kLoggerOption_BufferLogsUntilConnection)

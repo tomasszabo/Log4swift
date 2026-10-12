@@ -1,7 +1,8 @@
-name: Swift package
+name: Swift 6 package
 
 on:
   push:
+    branches: [master]
   pull_request:
 
 permissions:
@@ -13,7 +14,7 @@ concurrency:
 
 jobs:
   macos:
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -22,6 +23,8 @@ jobs:
         run: swift test
       - name: Release build
         run: swift build -c release
+      - name: Concurrent logging with Thread Sanitizer
+        run: swift test --sanitize thread --filter 'ConcurrencyTests|SubclassingTests'
       - name: Legacy framework build
         run: |
           xcodebuild -project Log4swift.xcodeproj -scheme log4swift-iOS \
@@ -30,7 +33,7 @@ jobs:
             IPHONEOS_DEPLOYMENT_TARGET=15.0 build
 
   ios:
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Representative simulator tests
@@ -52,4 +55,6 @@ jobs:
             -only-testing:Log4swiftTests/FileAppenderTests \
             -only-testing:Log4swiftTests/SystemAppenderTests \
             -only-testing:Log4swiftTests/SubclassingTests \
-            -only-testing:Log4swiftTests/NativeAppenderPackageTests test
+            -only-testing:Log4swiftTests/NativeAppenderPackageTests \
+            -only-testing:Log4swiftTests/ConcurrencyTests \
+            -parallel-testing-enabled NO test

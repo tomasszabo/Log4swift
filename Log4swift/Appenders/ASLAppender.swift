@@ -26,7 +26,7 @@ import Foundation
 /**
 This appender will send messages to ASL, the Apple System Log.
 */
-public class ASLAppender : Appender {
+public class ASLAppender : Appender, @unchecked Sendable {
   internal let aslClient = ASLWrapper ()
   
   @objc
@@ -35,6 +35,8 @@ public class ASLAppender : Appender {
   }
   
   public override func performLog(_ log: String, level: LogLevel, info: LogInfoDictionary) {
+    loggingStateLock.lock()
+    defer { loggingStateLock.unlock() }
     let category: String
     if let categoryFromInfo = info[LogInfoKeys.LoggerName] {
       category = categoryFromInfo.description
