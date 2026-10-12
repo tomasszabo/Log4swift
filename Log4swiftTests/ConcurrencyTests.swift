@@ -96,7 +96,8 @@ final class ConcurrencyTests: XCTestCase {
     for index in 0..<100 {
       logger.info { "message-\(index)" }
     }
-    wait(for: [completed], timeout: 5)
+    // Background QoS has no short delivery-latency guarantee on cold simulators.
+    wait(for: [completed], timeout: 30)
     XCTAssertEqual(appender.messages, (0..<100).map { "\(callerThread) message-\($0)" })
   }
 
@@ -121,17 +122,17 @@ final class ConcurrencyTests: XCTestCase {
     let resume = DispatchSemaphore(value: 0)
     logger.info {
       started.fulfill()
-      guard resume.wait(timeout: .now() + 5) == .success else {
+      guard resume.wait(timeout: .now() + 30) == .success else {
         XCTFail("Deferred logging did not resume")
         return "timeout"
       }
       return "first"
     }
-    wait(for: [started], timeout: 3)
+    wait(for: [started], timeout: 30)
     logger.appenders = [newDestination]
     logger.info("second")
     resume.signal()
-    wait(for: [completed], timeout: 5)
+    wait(for: [completed], timeout: 30)
     XCTAssertEqual(oldDestination.logMessages.map(\.message), ["first"])
     XCTAssertEqual(newDestination.messages, ["second"])
   }
