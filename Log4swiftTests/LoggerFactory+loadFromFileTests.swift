@@ -227,7 +227,7 @@ class LoggerFactoryLoadFromFileTests: XCTestCase {
     
     XCTAssertEqual(appenders.count, 5)
     for currentAppender in appenders {
-			XCTAssertEqual(currentAppender.identifier, currentAppender.className.components(separatedBy: ".").last!)
+			XCTAssertEqual(currentAppender.identifier, classNameAsString(currentAppender))
     }
   }
   
@@ -252,7 +252,7 @@ class LoggerFactoryLoadFromFileTests: XCTestCase {
     
     XCTAssertEqual(appenders.count, 5)
     for currentAppender in appenders {
-      XCTAssertEqual(currentAppender.identifier, currentAppender.className.components(separatedBy: ".").last!)
+      XCTAssertEqual(currentAppender.identifier, classNameAsString(currentAppender))
     }
   }
   
@@ -429,7 +429,11 @@ class LoggerFactoryLoadFromFileTests: XCTestCase {
   
   // Mark: Load from file tests
   func testLoadValidCompletePlistFile() {
+    #if SWIFT_PACKAGE
+    let filePath = Bundle.module.path(forResource: "ValidCompleteConfiguration", ofType: "plist", inDirectory: "Resources")
+    #else
     let filePath = Bundle(for: type(of: self)).path(forResource: "ValidCompleteConfiguration", ofType: "plist")
+    #endif
     
     // Execute
 		_ = XCTAssertNoThrow  { try self.factory.readConfiguration(fromPlistFile: filePath!); }

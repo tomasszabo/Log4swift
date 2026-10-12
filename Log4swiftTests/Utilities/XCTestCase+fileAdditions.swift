@@ -22,7 +22,20 @@ import XCTest
 
 extension XCTestCase {
   func createTemporaryFilePath(fileExtension: String) throws -> String {
+    #if SWIFT_PACKAGE
+    #if os(macOS)
+    let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+      .appendingPathComponent(".build/test-files", isDirectory: true)
+    #else
+    let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                                appropriateFor: nil, create: true)
+      .appendingPathComponent("Log4swiftTests", isDirectory: true)
+    #endif
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory.appendingPathComponent(UUID().uuidString + "." + fileExtension).path
+    #else
     let temporaryFilePath = (NSTemporaryDirectory() as NSString).appendingPathComponent(UUID().uuidString + "." + fileExtension)
     return temporaryFilePath
+    #endif
   }
 }

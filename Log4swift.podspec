@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
 
                    * very simple to use for simple cases
                    * extensively configurable for less simple cases
-                   * taking advantage of the swift 2 language
+                   * Swift and Objective-C compatible APIs
 
                    DESC
 
@@ -21,6 +21,7 @@ Pod::Spec.new do |s|
 
   s.ios.deployment_target = "8.0"
   s.osx.deployment_target = "10.10"
+  s.swift_versions = ["5.0"]
 
   s.source       = { :git => "https://github.com/jduquennoy/Log4swift.git", :tag => "v1.0.4" }
 

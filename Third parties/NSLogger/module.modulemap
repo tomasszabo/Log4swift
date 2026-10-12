@@ -1,0 +1,5 @@
+module Log4swiftNSLogger {
+    header "LoggerClient.h"
+    header "LoggerCommon.h"
+    export *
+}

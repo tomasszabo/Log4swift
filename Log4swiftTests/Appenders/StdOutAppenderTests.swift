@@ -25,8 +25,8 @@ import XCTest
 /// In those tests, the output is not tested for strict equality for test robustness:
 /// we might receive other logs for the OS while tests are running.
 class StdOutAppenderTests: XCTestCase {
-  let savedStdout = dup(fileno(stdout))
-  let savedStderr = dup(fileno(stderr))
+  var savedStdout: Int32 = -1
+  var savedStderr: Int32 = -1
   var stdoutReadFileHandle = FileHandle()
   var stderrReadFileHandle = FileHandle()
   
@@ -34,6 +34,10 @@ class StdOutAppenderTests: XCTestCase {
     super.setUp()
     
     // Capture stdout and stderr
+    fflush(stdout)
+    fflush(stderr)
+    savedStdout = dup(fileno(stdout))
+    savedStderr = dup(fileno(stderr))
     
     let stdoutPipe = Pipe()
     self.stdoutReadFileHandle = stdoutPipe.fileHandleForReading
@@ -45,8 +49,15 @@ class StdOutAppenderTests: XCTestCase {
   }
   
   override func tearDown() {
+    fflush(stdout)
+    fflush(stderr)
     dup2(self.savedStdout, fileno(stdout))
     dup2(self.savedStderr, fileno(stderr))
+    close(savedStdout)
+    close(savedStderr)
+    stdoutReadFileHandle.closeFile()
+    stderrReadFileHandle.closeFile()
+    super.tearDown()
   }
   
   func testStdOutAppenderDefaultErrorThresholdIsError() {
@@ -114,7 +125,7 @@ class StdOutAppenderTests: XCTestCase {
 
   func testUpdatingAppenderFromDictionaryWithInvalidThresholdThrowsError() {
     let dictionary = [LoggerFactory.DictionaryKey.Identifier.rawValue: "testAppender",
-      StdOutAppender.DictionaryKey.ThresholdLevel.rawValue: "invalid level"]
+      Appender.DictionaryKey.ThresholdLevel.rawValue: "invalid level"]
     let appender = StdOutAppender("test appender")
 
     // Execute & validate
@@ -123,7 +134,7 @@ class StdOutAppenderTests: XCTestCase {
   
   func testUpdatingAppenderFromDictionaryWithThresholdUsesSpecifiedValue() {
     let dictionary = [LoggerFactory.DictionaryKey.Identifier.rawValue: "testAppender",
-      StdOutAppender.DictionaryKey.ThresholdLevel.rawValue: LogLevel.Info.description]
+      Appender.DictionaryKey.ThresholdLevel.rawValue: LogLevel.Info.description]
     let appender = StdOutAppender("test appender")
     appender.thresholdLevel = .Debug
     
@@ -518,25 +529,13 @@ class StdOutAppenderTests: XCTestCase {
   // MARK: - Private methods
 
   fileprivate func getFileHandleContentAsString(_ fileHandle: FileHandle) -> String? {
-    let expectation = self.expectation(description: "filHandle content received")
-    var expectationIsExpired = false
-    var stringContent: String?
-    
-    if #available(OSX 10.10, *) {
-      DispatchQueue.global().async(execute: {
-        let data = fileHandle.availableData
-        stringContent = String(data: data, encoding: .utf8)
-        if(!expectationIsExpired) {
-          expectation.fulfill()
-        }
-      })
-    } else {
-        // Fallback on earlier versions
-    }
-    
-		waitForExpectations(timeout: 1, handler: { error in
-      expectationIsExpired = true
-    })
-    return stringContent
+    // stdout is fully buffered when the command-line runner redirects it.
+    fflush(stdout)
+    fflush(stderr)
+    var descriptor = pollfd(fd: fileHandle.fileDescriptor, events: Int16(POLLIN), revents: 0)
+    let ready = poll(&descriptor, 1, 1000)
+    XCTAssertEqual(ready, 1, "No output received from appender")
+    guard ready == 1 else { return nil }
+    return String(data: fileHandle.availableData, encoding: .utf8)
   }
 }
